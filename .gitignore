@@ -1,0 +1,6 @@
+# Respaldos y exportaciones con datos de estudiantes: no subir
+*.json
+*.xlsx
+*.csv
+.DS_Store
+Thumbs.db
