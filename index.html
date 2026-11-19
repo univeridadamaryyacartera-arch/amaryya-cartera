@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- AmarYYa v4.18 · Modo GitHub: publicada en Netlify, los datos se guardan en un repositorio privado de GitHub (amaryya-datos) y todo el equipo ve lo mismo · antes v4.17 · Estado de cuenta por estudiante · Pagos nuevos: el Apoyo Closer y su % de comisión se toman automáticamente del primer pago del estudiante, igual que el % del closer · antes v4.16 · Procesos terapéuticos generan bolsillo (sesiones del programa × 50 USD, proporcional al pago) + Sesiones: todos los terapeutas ven todas las sesiones personalizadas (solo editan las suyas pendientes) + si falla el guardado o la eliminación, la pantalla vuelve al dato real al instante + editar una sesión sin subir su valor no vuelve a pedir la casilla de exceso de bolsillo · antes v4.15 · Sesiones: conexión con la base más robusta al cargar + aviso cuando la copia no está conectada a la base compartida · antes v4.14 · Panel gerencial: una sola torta con selector de 7 indicadores (gráfica, tabla y detalle) + totales de control en Sesiones personalizadas · antes v4.13 · Lectura de comprobantes: al registrar un pago se sube la imagen y se detectan valor, moneda, fecha y plataforma · antes v4.12 · Eliminación en cascada de estudiantes (pagos y sesiones) + fuente Roboto en todos los paneles · antes v4.11 · Detalle emergente al pasar el cursor por las alertas · antes v4.10 · Barra lateral en amarillo #fec70b · antes v4.9 · Datos base embebidos: exportación 2026-11-05 (65 estudiantes, 69 pagos) cargada en el HTML · 2026-11-05 -->
+<!-- AmarYYa v4.19 · Ingreso solo con usuario y contraseña de la app (el acceso a GitHub va cifrado por usuario en llaves.json) · antes v4.18 · Modo GitHub: publicada en Netlify, los datos se guardan en un repositorio privado de GitHub (amaryya-datos) y todo el equipo ve lo mismo · antes v4.17 · Estado de cuenta por estudiante · Pagos nuevos: el Apoyo Closer y su % de comisión se toman automáticamente del primer pago del estudiante, igual que el % del closer · antes v4.16 · Procesos terapéuticos generan bolsillo (sesiones del programa × 50 USD, proporcional al pago) + Sesiones: todos los terapeutas ven todas las sesiones personalizadas (solo editan las suyas pendientes) + si falla el guardado o la eliminación, la pantalla vuelve al dato real al instante + editar una sesión sin subir su valor no vuelve a pedir la casilla de exceso de bolsillo · antes v4.15 · Sesiones: conexión con la base más robusta al cargar + aviso cuando la copia no está conectada a la base compartida · antes v4.14 · Panel gerencial: una sola torta con selector de 7 indicadores (gráfica, tabla y detalle) + totales de control en Sesiones personalizadas · antes v4.13 · Lectura de comprobantes: al registrar un pago se sube la imagen y se detectan valor, moneda, fecha y plataforma · antes v4.12 · Eliminación en cascada de estudiantes (pagos y sesiones) + fuente Roboto en todos los paneles · antes v4.11 · Detalle emergente al pasar el cursor por las alertas · antes v4.10 · Barra lateral en amarillo #fec70b · antes v4.9 · Datos base embebidos: exportación 2026-11-05 (65 estudiantes, 69 pagos) cargada en el HTML · 2026-11-05 -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -551,7 +551,11 @@ function authSplitUser(u){
 }
 async function authSaveCred(u){            // lo puede hacer cada persona con su propia cuenta
   const {cred} = authSplitUser(u);
-  try{ await dbClient.doc('credenciales/'+docIdFor('credenciales',cred)).set(cred); return true; }
+  try{
+    await dbClient.doc('credenciales/'+docIdFor('credenciales',cred)).set(cred);
+    if(GH_MODE && cred.salt && GH_WRAP[cred.salt]!==undefined){ const pw = GH_WRAP[cred.salt]; delete GH_WRAP[cred.salt]; const cfg = ghCfgStored(); if(cfg && cfg.token) ghSealToken(cfg.token, pw, cred.salt).then(e=>ghUpdateLlave(u.usuario, e)); }
+    return true;
+  }
   catch(e){ console.error('db cred error', e); return false; }
 }
 
@@ -590,6 +594,7 @@ async function deleteEntity(col, item){
   if(STORAGE_MODE==='db' && col==='usuarios'){
     try{ await dbClient.doc('usuarios/'+docIdFor('usuarios',item)).delete(); }catch(e){ console.error('db delete error', e); toast('No se pudo eliminar en la base compartida.', 'err'); return; }
     try{ await dbClient.doc('credenciales/'+docIdFor('credenciales',item)).delete(); }catch(e){ console.error('db delete cred', e); }
+    if(GH_MODE && item.usuario) ghUpdateLlave(item.usuario, null);
     return;
   }
   if(STORAGE_MODE==='db'){
@@ -691,7 +696,7 @@ function makeGasClient(){
 /* ================= MODO GITHUB: los datos viven en un repositorio privado de GitHub (un archivo JSON por tabla) ================= */
 let GH_MODE = false;
 const GH_KEY = 'amaryya:github';
-function ghCfgStored(){ try{ return JSON.parse(localStorage.getItem(GH_KEY) || 'null'); }catch(e){ return null; } }
+function ghCfgStored(){ try{ return JSON.parse(sessionStorage.getItem(GH_KEY) || localStorage.getItem(GH_KEY) || 'null'); }catch(e){ return null; } }
 function ghForget(){ try{ localStorage.removeItem(GH_KEY); }catch(e){} location.reload(); }
 const ghB64enc = s => { const b = new TextEncoder().encode(s); let r = ''; for(let i=0;i<b.length;i+=0x8000) r += String.fromCharCode.apply(null, b.subarray(i, i+0x8000)); return btoa(r); };
 const ghB64dec = s => new TextDecoder().decode(Uint8Array.from(atob(String(s||'').replace(/\s/g,'')), c=>c.charCodeAt(0)));
@@ -702,7 +707,7 @@ async function ghApi(cfg, path, opts){
   catch(e){ throw {code:'unavailable', message:'Sin conexión con GitHub. Revisa tu internet.'}; }
   if(r.status===304) return {notModified:true};
   if(r.status===404 && opts.allow404) return {notFound:true};
-  if(r.status===401){ try{ localStorage.removeItem(GH_KEY); }catch(e){} throw {code:'unauthenticated', message:'El token de GitHub no es válido o venció. Recarga la página y escribe uno nuevo.'}; }
+  if(r.status===401){ try{ sessionStorage.removeItem(GH_KEY); localStorage.removeItem(GH_KEY); }catch(e){} throw {code:'unauthenticated', message:'El token de GitHub no es válido o venció. Recarga la página y escribe uno nuevo.'}; }
   if(r.status===403 || r.status===404) throw {code:'permission-denied', message: opts.method==='PUT' ? 'Tu token de GitHub no tiene permiso para guardar (solo lectura).' : 'No hay acceso al repositorio de datos. Revisa el usuario, el nombre del repositorio y el token.'};
   if(r.status===409 || r.status===422) throw {code:'conflict', message:'Otra persona guardó al mismo tiempo.'};
   if(!r.ok) throw {code:'unknown', message:'GitHub respondió con error '+r.status+'.'};
@@ -786,25 +791,97 @@ function makeGhClient(cfg){
     refresh: poll
   };
 }
-/* Pantalla de conexión: se pide una sola vez en cada navegador. */
-function ghSetupScreen(msg){
+/* Acceso a GitHub: el token va cifrado por usuario en llaves.json (se abre con la contraseña de la app). */
+const GH_ACCESS = {owner:'AngelaYPC', datos:'amaryya-datos', app:'amaryya-cartera', branch:'main', llaves:'llaves.json'};
+const GH_WRAP = {};      // sal → contraseña recién escrita (solo en memoria, se borra al usarla)
+const GH_ITER = 150000;
+function ghSessionClear(){ try{ sessionStorage.removeItem(GH_KEY); localStorage.removeItem(GH_KEY); }catch(e){} }
+function ghSessionSave(cfg, remember){ ghSessionClear(); try{ (remember ? localStorage : sessionStorage).setItem(GH_KEY, JSON.stringify(cfg)); }catch(e){} }
+async function ghUserKey(usuario){ const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('amaryya|'+ioNorm(usuario))); return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+async function ghWrapKey(password, salt){
+  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password)), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', salt:new TextEncoder().encode('gh|'+salt), iterations:GH_ITER, hash:'SHA-256'}, k, {name:'AES-GCM', length:256}, false, ['encrypt','decrypt']);
+}
+async function ghSealToken(token, password, salt){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, await ghWrapKey(password, salt), new TextEncoder().encode(token));
+  return {s:salt, iv:authB64(iv), ct:authB64(ct)};
+}
+async function ghOpenToken(entry, password){
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv:authUnB64(entry.iv)}, await ghWrapKey(password, entry.s), authUnB64(entry.ct));
+  return new TextDecoder().decode(pt);
+}
+/* Escribe/borra la llave de un usuario en llaves.json del repositorio de la app (Netlify la publica en ~1 minuto). */
+let ghLlavesChain = Promise.resolve();
+function ghUpdateLlave(usuario, entry){
+  ghLlavesChain = ghLlavesChain.then(async ()=>{
+    const cfg = ghCfgStored(); if(!cfg || !cfg.token || !usuario) return;
+    const app = {owner:GH_ACCESS.owner, repo:GH_ACCESS.app, token:cfg.token};
+    const key = await ghUserKey(usuario);
+    for(let i=0;i<4;i++){
+      try{
+        const cur = await ghApi(app, '/contents/'+GH_ACCESS.llaves, {allow404:true});
+        let data = {}, sha;
+        if(!cur.notFound){ sha = cur.json.sha; try{ data = JSON.parse(ghB64dec(cur.json.content)) || {}; }catch(e){ data = {}; } }
+        if(entry) data[key] = entry; else if(data[key]) delete data[key]; else return;
+        await ghApi(app, '/contents/'+GH_ACCESS.llaves, {method:'PUT', body:{message:'llaves: '+(entry?'actualiza':'elimina')+' acceso', content:ghB64enc(JSON.stringify(data, null, 1)), branch:GH_ACCESS.branch, sha}});
+        return;
+      }catch(e){ if(e.code!=='conflict'){ console.error('llaves', e); toast('⚠️ No se pudo actualizar el acceso de "'+usuario+'" en GitHub: '+(e.message||''), 'err'); return; } await new Promise(r=>setTimeout(r, 500+Math.random()*700)); }
+    }
+  });
+  return ghLlavesChain;
+}
+async function ghLlavesPublicas(){
+  try{ const r = await fetch(GH_ACCESS.llaves+'?t='+Date.now(), {cache:'no-store'}); if(!r.ok) return {}; return await r.json(); }catch(e){ return {}; }
+}
+/* Pantalla de ingreso: solo usuario y contraseña. */
+function ghLoginScreen(msg){
   return new Promise(resolve=>{
-    const prev = ghCfgStored() || {};
-    authScreen(`<h3>Conectar con GitHub</h3>
-      <p class="muted" style="margin:6px 0 12px; font-size:13px;">Los datos se guardan en el repositorio privado de datos. Escribe estos datos una sola vez en este navegador.</p>
-      <label style="font-size:13px;">Usuario u organización de GitHub</label><input id="ghOwner" type="text" value="${escapeHtml(prev.owner||'')}" placeholder="ej: angelapulido" style="width:100%; margin:4px 0 10px;">
-      <label style="font-size:13px;">Repositorio de datos</label><input id="ghRepo" type="text" value="${escapeHtml(prev.repo||'amaryya-datos')}" style="width:100%; margin:4px 0 10px;">
-      <label style="font-size:13px;">Token de acceso</label><input id="ghToken" type="password" placeholder="github_pat_…" style="width:100%; margin:4px 0 12px;">
+    authScreen(`<form id="ghLogin" autocomplete="on">
+      <label style="font-size:13px;">Usuario</label><input id="ghU" name="username" type="text" autocomplete="username" style="width:100%; margin:4px 0 10px;" required>
+      <label style="font-size:13px;">Contraseña</label><input id="ghP" name="password" type="password" autocomplete="current-password" style="width:100%; margin:4px 0 10px;" required>
+      <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:12px;"><input type="checkbox" id="ghR" style="width:auto;"> Recordarme en este equipo</label>
+      <button class="btn btn-gold" type="submit" style="width:100%;">Ingresar</button>
+      <div id="authMsg" class="auth-msg" style="margin-top:12px;">${msg?escapeHtml(msg):''}</div>
+      <p style="text-align:center; margin:16px 0 0;"><a href="#" id="ghSetup" style="font-size:12px; color:var(--ink-faint);">Primera configuración (solo administrador)</a></p></form>`);
+    document.getElementById('ghU').focus();
+    document.getElementById('ghLogin').addEventListener('submit', async ev=>{
+      ev.preventDefault();
+      const usuario = document.getElementById('ghU').value.trim(), clave = document.getElementById('ghP').value, remember = document.getElementById('ghR').checked;
+      const m = document.getElementById('authMsg'); m.textContent = 'Verificando…';
+      const llaves = await ghLlavesPublicas(), entry = llaves[await ghUserKey(usuario)];
+      let token = '';
+      if(entry){ try{ token = await ghOpenToken(entry, clave); }catch(e){ token = ''; } }
+      if(!token){ m.textContent = 'Usuario o contraseña incorrectos. Si tu contraseña se creó o cambió hace menos de 1 minuto, espera un momento e intenta de nuevo.'; return; }
+      const cfg = {owner:GH_ACCESS.owner, repo:GH_ACCESS.datos, branch:GH_ACCESS.branch, token};
+      ghSessionSave(cfg, remember);
+      window.__ghPendingLogin = {usuario, clave, remember};
+      authRoot().innerHTML = ''; resolve(cfg);
+    });
+    document.getElementById('ghSetup').addEventListener('click', ev=>{ ev.preventDefault(); ghSetupToken().then(resolve); });
+  });
+}
+/* Solo la primera vez (o para recuperar el acceso): la administradora pega el token de GitHub. */
+function ghSetupToken(){
+  return new Promise(resolve=>{
+    authScreen(`<h3>Primera configuración</h3>
+      <p class="muted" style="margin:6px 0 12px; font-size:13px;">Pega el token de GitHub con permiso de lectura y escritura en <b>${GH_ACCESS.datos}</b> y <b>${GH_ACCESS.app}</b>. Solo se pide esta vez: después cada persona entra con su usuario y contraseña.</p>
+      <input id="ghT" type="password" placeholder="github_pat_…" style="width:100%; margin:4px 0 12px;">
       <button class="btn btn-gold" id="ghGo" style="width:100%;">Conectar</button>
-      <div id="authMsg" class="auth-msg" style="margin-top:12px;">${msg?escapeHtml(msg):''}</div>`);
+      <div id="authMsg" class="auth-msg" style="margin-top:12px;"></div>
+      <p style="text-align:center; margin:14px 0 0;"><a href="#" id="ghBack" style="font-size:12px; color:var(--ink-faint);">← Volver al ingreso</a></p>`);
+    document.getElementById('ghBack').addEventListener('click', ev=>{ ev.preventDefault(); ghLoginScreen('').then(resolve); });
     document.getElementById('ghGo').addEventListener('click', async ()=>{
-      const cfg = {owner:document.getElementById('ghOwner').value.trim(), repo:document.getElementById('ghRepo').value.trim(), token:document.getElementById('ghToken').value.trim(), branch:'main'};
-      const m = document.getElementById('authMsg');
-      if(!cfg.owner || !cfg.repo || !cfg.token){ m.textContent = 'Completa los tres datos.'; return; }
+      const token = document.getElementById('ghT').value.trim(), m = document.getElementById('authMsg');
+      if(!token){ m.textContent = 'Pega el token.'; return; }
       m.textContent = 'Verificando…';
-      try{ const r = await ghApi(cfg, ''); if(r.json.default_branch) cfg.branch = r.json.default_branch; cfg.soloLectura = !(r.json.permissions && r.json.permissions.push); }
-      catch(e){ m.textContent = e.message || 'No se pudo conectar.'; return; }
-      try{ localStorage.setItem(GH_KEY, JSON.stringify(cfg)); }catch(e){}
+      const cfg = {owner:GH_ACCESS.owner, repo:GH_ACCESS.datos, branch:GH_ACCESS.branch, token};
+      try{
+        const d = await ghApi(cfg, ''); if(!(d.json.permissions && d.json.permissions.push)) throw {message:'El token no tiene permiso de escritura en '+GH_ACCESS.datos+'.'};
+        if(d.json.default_branch) cfg.branch = d.json.default_branch;
+        const a = await ghApi({owner:GH_ACCESS.owner, repo:GH_ACCESS.app, token}, ''); if(!(a.json.permissions && a.json.permissions.push)) throw {message:'El token no tiene permiso de escritura en '+GH_ACCESS.app+'.'};
+      }catch(e){ m.textContent = e.message || 'No se pudo conectar.'; return; }
+      ghSessionSave(cfg, false);
       authRoot().innerHTML = ''; resolve(cfg);
     });
   });
@@ -915,10 +992,10 @@ async function detectStorageMode(){
   if(gasCfg().gasUrl){ dbClient = makeGasClient(); STORAGE_MODE = 'db'; GAS_MODE = true; return; }
   if(location.protocol!=='file:' && ghEnabled()){
     let cfg = ghCfgStored();
-    if(!cfg || !cfg.token) cfg = await ghSetupScreen('');
+    if(!cfg || !cfg.token) cfg = await ghLoginScreen('');
     dbClient = makeGhClient(cfg);
     try{ await dbClient.collection('usuarios').get(); }
-    catch(e){ cfg = await ghSetupScreen(e.message || 'No se pudo leer el repositorio de datos.'); dbClient = makeGhClient(cfg); }
+    catch(e){ ghSessionClear(); cfg = await ghLoginScreen(e.message || 'No se pudo leer el repositorio de datos.'); dbClient = makeGhClient(cfg); }
     STORAGE_MODE = 'db'; GH_MODE = true; return;
   }
   if(location.protocol !== 'file:') await waitForClaudeHost(3000);
@@ -5188,6 +5265,7 @@ async function authHash(password, saltB64){
   return authB64(bits);
 }
 const authNewSalt = () => authB64(crypto.getRandomValues(new Uint8Array(16)));
+{ const _authHash = authHash; authHash = async function(password, saltB64){ const h = await _authHash(password, saltB64); if(GH_MODE && password!=null) GH_WRAP[saltB64] = String(password); return h; }; }
 function authTempPassword(){
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
   return Array.from(crypto.getRandomValues(new Uint8Array(12)), x=>chars[x%chars.length]).join('');
@@ -5385,7 +5463,9 @@ async function authTryLogin(usuario, password){
   const fail = ()=>{ authFails++; if(authFails>=5){ authLockUntil = Date.now()+30000; authFails = 0; } return {ok:false, msg:'Usuario o contraseña incorrectos.'}; };
   if(!u || u.activo===false){ await authHash(password||'x', authNewSalt()); return fail(); }   // mismo tiempo de respuesta
   if(await authHash(password, u.salt) !== u.hash) return fail();
-  authFails = 0; return {ok:true, user:u};
+  authFails = 0;
+  if(GH_MODE && u.salt){ delete GH_WRAP[u.salt]; const cfg = ghCfgStored(); if(cfg && cfg.token) ghLlavesPublicas().then(async ll=>{ if(!ll[await ghUserKey(u.usuario)]) ghUpdateLlave(u.usuario, await ghSealToken(cfg.token, password, u.salt)); }); }
+  return {ok:true, user:u};
 }
 function authSaveSession(u, remember){
   const v = JSON.stringify({id:u.id, h:u.hash});
@@ -5445,6 +5525,7 @@ async function authEnter(u, silent, remember){
 }
 function authLogout(msg){
   if(GAS_MODE){ gasSignOut(); return; }
+  if(GH_MODE){ currentUser = null; authClearSession(); ghSessionClear(); location.reload(); return; }
   currentUser = null; authClearSession();
   COLLECTIONS.forEach(c=>{ if(DB_ALL[c]) DB[c] = DB_ALL[c]; });
   authShowLogin(msg||'');
@@ -5481,6 +5562,12 @@ async function authInit(){
     if(canBoot) authShowBootstrap();
     else authShowBlocked('Aún no hay usuarios configurados. El propietario o un Editor del artifact debe ingresar primero y crear a los administradores.');
     return false;
+  }
+  if(window.__ghPendingLogin){
+    const pl = window.__ghPendingLogin; delete window.__ghPendingLogin;
+    const r = await authTryLogin(pl.usuario, pl.clave);
+    if(r.ok){ await authEnter(r.user, false, pl.remember); return false; }
+    authShowLogin(r.msg); return false;
   }
   const s = authLoadSession();
   if(s){ await authEnter(s, true); return false; }

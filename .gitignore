@@ -1,5 +1,6 @@
 # Respaldos y exportaciones con datos de estudiantes: no subir
 *.json
+!llaves.json
 *.xlsx
 *.csv
 .DS_Store
